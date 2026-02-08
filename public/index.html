@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC 3-Person Call - Prototype</title>
+    <style>
+        /* 
+         * Minimal styling for prototype
+         * Can be improved later
+         */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #1a1a2e;
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            color: #00d4ff;
+        }
+
+        #status {
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 10px;
+            background-color: #16213e;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        /* Video grid - displays up to 5 videos */
+        #video-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 15px;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 10px;
+        }
+
+        /* When there are more than 3 videos, make them smaller */
+        @media (min-width: 900px) {
+            #video-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
+        .video-container {
+            position: relative;
+            background-color: #0f0f23;
+            border-radius: 12px;
+            overflow: hidden;
+            aspect-ratio: 9 / 16;
+        }
+
+        .video-container video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .video-label {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        /* Local video has a distinct border */
+        .video-container.local {
+            border: 3px solid #00d4ff;
+        }
+
+        /* Controls */
+        #controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 14px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        #join-btn {
+            background-color: #00d4ff;
+            color: #000;
+        }
+
+        #join-btn:hover {
+            background-color: #00a8cc;
+        }
+
+        #join-btn:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+
+        #leave-btn {
+            background-color: #ff4757;
+            color: #fff;
+        }
+
+        #leave-btn:hover {
+            background-color: #ff3344;
+        }
+
+        #leave-btn:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+
+        /* Error/warning messages */
+        .error {
+            color: #ff4757;
+            font-weight: bold;
+        }
+
+        .success {
+            color: #2ed573;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>WebRTC 3-Person Call</h1>
+
+    <!-- Status display - shows connection state -->
+    <div id="status">
+        <span>Status: </span>
+        <span id="status-text">Ready to join</span>
+    </div>
+
+    <!-- Control buttons -->
+    <div id="controls">
+        <button id="join-btn">Join Room</button>
+        <button id="leave-btn" disabled>Leave Room</button>
+    </div>
+
+    <!-- Video grid - will contain local and remote videos -->
+    <div id="video-grid">
+        <!-- Videos will be dynamically added here -->
+    </div>
+
+    <!-- Socket.IO client library (served by socket.io server) -->
+    <script src="/socket.io/socket.io.js"></script>
+
+    <!-- Main WebRTC script -->
+    <script src="script.js"></script>
+</body>
+
+</html>
