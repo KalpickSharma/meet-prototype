@@ -34,24 +34,44 @@ io.on('connection', (socket) => {
     console.log(`[CONNECT] User connected: ${socket.id}`);
 
     socket.on('join-room', (roomId) => {
-        if (!rooms[roomId]) rooms[roomId] = {};
-
-        const currentUsers = Object.keys(rooms[roomId]).length;
-        if (currentUsers >= MAX_USERS_PER_ROOM) {
-            socket.emit('room-full');
-            return;
+        if (!rooms[roomId]) {
+            // First user joins directly and becomes host
+            rooms[roomId] = { host: socket.id, users: {} };
+            rooms[roomId].users[socket.id] = { id: socket.id };
+            socket.join(roomId);
+            socket.roomId = roomId;
+            console.log(`[HOST] User ${socket.id} started room ${roomId}`);
+            socket.emit('joined-as-host');
+        } else {
+            // Room already exists, ask the host for permission
+            const hostId = rooms[roomId].host;
+            console.log(`[WAITING] User ${socket.id} requesting to join room ${roomId} (Host: ${hostId})`);
+            io.to(hostId).emit('join-request', { sender: socket.id });
+            socket.emit('waiting-for-host');
         }
+    });
 
-        const existingUsers = Object.keys(rooms[roomId]);
-        rooms[roomId][socket.id] = { id: socket.id };
+    socket.on('accept-user', ({ targetId }) => {
+        const roomId = socket.roomId;
+        if (!roomId || !rooms[roomId] || rooms[roomId].host !== socket.id) return;
 
-        socket.join(roomId);
-        socket.roomId = roomId;
+        console.log(`[ACCEPTED] Host ${socket.id} accepted user ${targetId}`);
 
-        console.log(`[JOINED] User ${socket.id} joined room ${roomId}`);
+        const existingUsers = Object.keys(rooms[roomId].users);
+        rooms[roomId].users[targetId] = { id: targetId };
 
-        socket.emit('existing-users', existingUsers);
-        socket.to(roomId).emit('user-joined', socket.id);
+        const targetSocket = io.sockets.sockets.get(targetId);
+        if (targetSocket) {
+            targetSocket.join(roomId);
+            targetSocket.roomId = roomId;
+            targetSocket.emit('join-approved', { existingUsers });
+            socket.to(roomId).emit('user-joined', targetId);
+        }
+    });
+
+    socket.on('reject-user', ({ targetId }) => {
+        console.log(`[REJECTED] Host ${socket.id} rejected user ${targetId}`);
+        io.to(targetId).emit('join-rejected');
     });
 
     socket.on('offer', ({ target, offer }) => {
@@ -69,9 +89,21 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         const roomId = socket.roomId;
         if (roomId && rooms[roomId]) {
-            delete rooms[roomId][socket.id];
+            delete rooms[roomId].users[socket.id];
             socket.to(roomId).emit('user-left', socket.id);
-            if (Object.keys(rooms[roomId]).length === 0) delete rooms[roomId];
+
+            // If host leaves, assign a new host or close room
+            if (rooms[roomId].host === socket.id) {
+                const remainingUsers = Object.keys(rooms[roomId].users);
+                if (remainingUsers.length > 0) {
+                    rooms[roomId].host = remainingUsers[0];
+                    console.log(`[NEW HOST] User ${rooms[roomId].host} is the new host for room ${roomId}`);
+                } else {
+                    delete rooms[roomId];
+                }
+            } else if (Object.keys(rooms[roomId].users).length === 0) {
+                delete rooms[roomId];
+            }
         }
         console.log(`[DISCONNECT] User disconnected: ${socket.id}`);
     });

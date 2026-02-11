@@ -47,6 +47,8 @@ let peerConnections = {};       // Object to store RTCPeerConnection for each pe
 const videoGrid = document.getElementById('video-grid');
 const statusText = document.getElementById('status-text');
 const joinBtn = document.getElementById('join-btn');
+const muteBtn = document.getElementById('mute-btn');
+const videoBtn = document.getElementById('video-btn');
 const leaveBtn = document.getElementById('leave-btn');
 
 // ============================================
@@ -392,62 +394,84 @@ function initializeSocket() {
     socket = io();
 
     /**
-     * When we join a room, we receive a list of existing users
-     * We need to create offers to all of them
+     * Waiting Room: Host receives join request
      */
-    socket.on('existing-users', (users) => {
-        console.log(`[SOCKET] Existing users in room:`, users);
-        users.forEach(userId => {
-            // Create an offer for each existing user
-            createOffer(userId);
-        });
+    socket.on('join-request', ({ sender }) => {
+        console.log(`[SOCKET] Join request from: ${sender}`);
+        const confirmed = confirm(`A user (ID: ${sender}) wants to join the room. Allow them?`);
+        if (confirmed) {
+            socket.emit('accept-user', { targetId: sender });
+        } else {
+            socket.emit('reject-user', { targetId: sender });
+        }
     });
 
     /**
-     * When a new user joins the room
-     * We don't need to do anything - they will send us an offer
+     * Waiting Room: Joiner is waiting
+     */
+    socket.on('waiting-for-host', () => {
+        updateStatus('Waiting for host to let you in...', 'normal');
+    });
+
+    /**
+     * Waiting Room: Joiner is approved
+     */
+    socket.on('join-approved', ({ existingUsers }) => {
+        console.log(`[SOCKET] Join approved! Existing users:`, existingUsers);
+        updateStatus('Join approved! Connecting...', 'success');
+
+        // Now connect to existing users
+        existingUsers.forEach(userId => {
+            createOffer(userId);
+        });
+
+        muteBtn.disabled = false;
+        videoBtn.disabled = false;
+        leaveBtn.disabled = false;
+    });
+
+    /**
+     * Waiting Room: Joiner is rejected
+     */
+    socket.on('join-rejected', () => {
+        updateStatus('Join request was rejected by host.', 'error');
+        leaveRoom();
+    });
+
+    /**
+     * When we join as host, we are already in the room
+     */
+    socket.on('joined-as-host', () => {
+        updateStatus('Joined as host. Waiting for others...', 'success');
+        muteBtn.disabled = false;
+        videoBtn.disabled = false;
+        leaveBtn.disabled = false;
+    });
+
+    /**
+     * Handle incoming peer signaling
      */
     socket.on('user-joined', (userId) => {
         console.log(`[SOCKET] New user joined: ${userId}`);
-        updateStatus(`User joined. Waiting for connection...`);
+        updateStatus(`New peer connecting...`);
     });
 
-    /**
-     * Handle incoming offers
-     */
     socket.on('offer', ({ sender, offer }) => {
         handleOffer(sender, offer);
     });
 
-    /**
-     * Handle incoming answers
-     */
     socket.on('answer', ({ sender, answer }) => {
         handleAnswer(sender, answer);
     });
 
-    /**
-     * Handle incoming ICE candidates
-     */
     socket.on('ice-candidate', ({ sender, candidate }) => {
         handleIceCandidate(sender, candidate);
     });
 
-    /**
-     * When a user leaves the room
-     */
     socket.on('user-left', (userId) => {
         console.log(`[SOCKET] User left: ${userId}`);
         closePeerConnection(userId);
         updateStatus('A user left the call');
-    });
-
-    /**
-     * When room is full (3 users already)
-     */
-    socket.on('room-full', () => {
-        updateStatus('Room is full (max 3 users)', 'error');
-        leaveRoom();
     });
 
     console.log('[SOCKET] Socket initialized');
@@ -475,11 +499,10 @@ async function joinRoom() {
         initializeSocket();
 
         // Join the room
-        updateStatus('Joining room...');
+        updateStatus('Requesting to join room...');
         socket.emit('join-room', ROOM_ID);
 
-        updateStatus('In room. Waiting for others...', 'success');
-        leaveBtn.disabled = false;
+        // Success state is now handled by joined-as-host or join-approved events
 
     } catch (error) {
         console.error('[ERROR] Failed to join room:', error);
@@ -515,9 +538,55 @@ function leaveRoom() {
     // Reset UI
     updateStatus('Left the room. Ready to rejoin.');
     joinBtn.disabled = false;
+    muteBtn.disabled = true;
+    videoBtn.disabled = true;
     leaveBtn.disabled = true;
 
+    // Reset button text/icons
+    muteBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+    videoBtn.innerHTML = '<i class="fas fa-video"></i>';
+    muteBtn.classList.remove('toggle-off');
+    videoBtn.classList.remove('toggle-off');
+
     console.log('[ROOM] Left the room');
+}
+
+/**
+ * Toggle local audio track
+ */
+function toggleAudio() {
+    if (!localStream) return;
+
+    const audioTrack = localStream.getAudioTracks()[0];
+    if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        muteBtn.innerHTML = audioTrack.enabled ? '<i class="fas fa-microphone"></i>' : '<i class="fas fa-microphone-slash"></i>';
+        if (!audioTrack.enabled) {
+            muteBtn.classList.add('toggle-off');
+        } else {
+            muteBtn.classList.remove('toggle-off');
+        }
+        console.log(`[MEDIA] Audio ${audioTrack.enabled ? 'enabled' : 'disabled'}`);
+    }
+}
+
+/**
+ * Toggle local video track
+ */
+function toggleVideo() {
+    if (!localStream) return;
+
+    const videoTrack = localStream.getVideoTracks()[0];
+    if (videoTrack) {
+        videoTrack.enabled = !videoTrack.enabled;
+        videoBtn.innerHTML = videoTrack.enabled ? '<i class="fas fa-video"></i>' : '<i class="fas fa-video-slash"></i>';
+        if (!videoTrack.enabled) {
+            videoBtn.classList.add('toggle-off');
+        } else {
+            videoBtn.classList.remove('toggle-off');
+        }
+        console.log(`[MEDIA] Video ${videoTrack.enabled ? 'enabled' : 'disabled'}`);
+    }
 }
 
 // ============================================
@@ -525,6 +594,8 @@ function leaveRoom() {
 // ============================================
 
 joinBtn.addEventListener('click', joinRoom);
+muteBtn.addEventListener('click', toggleAudio);
+videoBtn.addEventListener('click', toggleVideo);
 leaveBtn.addEventListener('click', leaveRoom);
 
 // Handle page unload - clean up connections
