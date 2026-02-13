@@ -223,13 +223,25 @@ async function toggleScreenSharing() {
             };
 
             const screenTrack = screenStream.getVideoTracks()[0];
+            const screenAudioTrack = screenStream.getAudioTracks()[0];
 
-            // Replace video track in all peer connections
+            // Replace tracks in all peer connections
             for (const peerId in peerConnections) {
                 const senders = peerConnections[peerId].getSenders();
-                const videoSender = senders.find(s => s.track.kind === 'video');
+
+                // Replace video track
+                const videoSender = senders.find(s => s.track && s.track.kind === 'video');
                 if (videoSender) {
                     videoSender.replaceTrack(screenTrack);
+                }
+
+                // Replace audio track if screen share has audio
+                if (screenAudioTrack) {
+                    const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
+                    if (audioSender) {
+                        audioSender.replaceTrack(screenAudioTrack);
+                        console.log(`[RTC] Replaced audio track with screen audio for ${peerId}`);
+                    }
                 }
             }
 
@@ -256,13 +268,23 @@ async function toggleScreenSharing() {
             screenStream = null;
 
             const cameraTrack = localStream.getVideoTracks()[0];
+            const micTrack = localStream.getAudioTracks()[0];
 
-            // Replace back with camera track in all peer connections
+            // Replace back with camera and mic tracks in all peer connections
             for (const peerId in peerConnections) {
                 const senders = peerConnections[peerId].getSenders();
-                const videoSender = senders.find(s => s.track.kind === 'video');
+
+                // Restore video track
+                const videoSender = senders.find(s => s.track && s.track.kind === 'video');
                 if (videoSender) {
                     videoSender.replaceTrack(cameraTrack);
+                }
+
+                // Restore audio track
+                const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
+                if (audioSender && micTrack) {
+                    audioSender.replaceTrack(micTrack);
+                    console.log(`[RTC] Restored mic audio track for ${peerId}`);
                 }
             }
 
