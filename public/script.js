@@ -41,6 +41,8 @@ let peerConnections = {};       // Object to store RTCPeerConnection for each pe
 let screenStream = null;        // Stream for screen sharing
 let isScreenSharing = false;    // Flag for screen sharing state
 let wakeLock = null;            // To keep the screen on during calls
+let audioContext = null;        // AudioContext for mixing streams
+let mixedStreamDestination = null; // Destination for mixed audio
 // Key: peerId, Value: RTCPeerConnection
 
 // ============================================
@@ -123,6 +125,7 @@ function addVideoStream(id, stream, label, isLocal = false) {
     video.srcObject = stream;
 
     console.log(`[VIDEO] Added video for: ${id}`);
+    updateGridLayout();
 }
 
 /**
@@ -134,6 +137,7 @@ function removeVideo(id) {
     if (container) {
         container.remove();
         console.log(`[VIDEO] Removed video for: ${id}`);
+        updateGridLayout();
     }
 }
 
@@ -206,6 +210,57 @@ async function getLocalStream() {
 }
 
 /**
+ * Mixes microphone audio with system audio
+ * @param {MediaStream} micStream - The microphone stream
+ * @param {MediaStream} systemStream - The system audio stream
+ * @returns {MediaStreamTrack} The mixed audio track
+ */
+function createMixedAudioStream(micStream, systemStream) {
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    // Create destination if it doesn't exist
+    if (!mixedStreamDestination) {
+        mixedStreamDestination = audioContext.createMediaStreamDestination();
+    }
+
+    // Add microphone to mix
+    if (micStream && micStream.getAudioTracks().length > 0) {
+        const micSource = audioContext.createMediaStreamSource(micStream);
+        micSource.connect(mixedStreamDestination);
+    }
+
+    // Add system audio to mix
+    if (systemStream && systemStream.getAudioTracks().length > 0) {
+        const systemSource = audioContext.createMediaStreamSource(systemStream);
+        systemSource.connect(mixedStreamDestination);
+    }
+
+    return mixedStreamDestination.stream.getAudioTracks()[0];
+}
+
+/**
+ * Updates the video grid layout based on participant count
+ */
+function updateGridLayout() {
+    const videoContainers = document.querySelectorAll('.video-container');
+    const count = videoContainers.length;
+
+    // Reset grid classes
+    videoGrid.className = '';
+
+    if (isScreenSharing) {
+        videoGrid.classList.add('gallery-sharing');
+    } else {
+        if (count === 1) videoGrid.classList.add('gallery-1');
+        else if (count === 2) videoGrid.classList.add('gallery-2');
+        else if (count <= 4) videoGrid.classList.add('gallery-4');
+        else videoGrid.classList.add('gallery-many');
+    }
+}
+
+/**
  * Handle Screen Sharing
  */
 async function toggleScreenSharing() {
@@ -235,12 +290,14 @@ async function toggleScreenSharing() {
                     videoSender.replaceTrack(screenTrack);
                 }
 
-                // Replace audio track if screen share has audio
+                // Replace audio track with mixed audio if screen share has audio
                 if (screenAudioTrack) {
+                    const mixedAudioTrack = createMixedAudioStream(localStream, screenStream);
+
                     const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
                     if (audioSender) {
-                        audioSender.replaceTrack(screenAudioTrack);
-                        console.log(`[RTC] Replaced audio track with screen audio for ${peerId}`);
+                        audioSender.replaceTrack(mixedAudioTrack);
+                        console.log(`[RTC] Replaced audio track with mixed audio for ${peerId}`);
                     }
                 }
             }
@@ -254,6 +311,9 @@ async function toggleScreenSharing() {
             if (localVideo) {
                 localVideo.srcObject = screenStream;
             }
+
+            // Update grid layout for sharing mode
+            updateGridLayout();
 
             isScreenSharing = true;
             shareBtn.classList.add('toggle-off');
@@ -303,6 +363,15 @@ async function toggleScreenSharing() {
             shareBtn.innerHTML = '<i class="fas fa-desktop"></i>';
             videoBtn.disabled = false;
             updateStatus('Stopped screen share');
+
+            // Clean up AudioContext if used
+            if (audioContext && audioContext.state !== 'closed') {
+                // We keep it open for future but could suspend
+                // audioContext.suspend(); 
+            }
+
+            // Update grid layout
+            updateGridLayout();
         }
     } catch (error) {
         console.error('[ERROR] Screen share failed:', error);
