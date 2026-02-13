@@ -133,6 +133,20 @@
             border: 2px solid var(--primary);
         }
 
+        /* Screen Sharing specific styles */
+        .video-container.sharing-screen {
+            aspect-ratio: auto;
+            grid-column: 1 / -1;
+            /* Make it full width for better view */
+            max-height: 80vh;
+        }
+
+        .video-container.sharing-screen video {
+            object-fit: contain;
+            /* Ensure full screen is visible */
+            background: #000;
+        }
+
         /* Controls Panel */
         #controls-wrapper {
             position: sticky;

@@ -233,8 +233,12 @@ async function toggleScreenSharing() {
                 }
             }
 
-            // Update local preview
+            // Update local preview and container
+            const localContainer = document.getElementById('container-local');
             const localVideo = document.getElementById('video-local');
+            if (localContainer) {
+                localContainer.classList.add('sharing-screen');
+            }
             if (localVideo) {
                 localVideo.srcObject = screenStream;
             }
@@ -262,8 +266,12 @@ async function toggleScreenSharing() {
                 }
             }
 
-            // Restore local preview
+            // Restore local preview and container
+            const localContainer = document.getElementById('container-local');
             const localVideo = document.getElementById('video-local');
+            if (localContainer) {
+                localContainer.classList.remove('sharing-screen');
+            }
             if (localVideo) {
                 localVideo.srcObject = localStream;
             }
