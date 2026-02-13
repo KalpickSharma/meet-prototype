@@ -38,6 +38,9 @@ const ROOM_ID = 'main-room';
 let socket = null;              // Socket.IO connection
 let localStream = null;         // Our camera/microphone stream
 let peerConnections = {};       // Object to store RTCPeerConnection for each peer
+let screenStream = null;        // Stream for screen sharing
+let isScreenSharing = false;    // Flag for screen sharing state
+let wakeLock = null;            // To keep the screen on during calls
 // Key: peerId, Value: RTCPeerConnection
 
 // ============================================
@@ -49,6 +52,8 @@ const statusText = document.getElementById('status-text');
 const joinBtn = document.getElementById('join-btn');
 const muteBtn = document.getElementById('mute-btn');
 const videoBtn = document.getElementById('video-btn');
+const shareBtn = document.getElementById('share-btn');
+const pipBtn = document.getElementById('pip-btn');
 const leaveBtn = document.getElementById('leave-btn');
 
 // ============================================
@@ -198,6 +203,126 @@ async function getLocalStream() {
     placeholderStream.addTrack(destination.stream.getAudioTracks()[0]);
 
     return placeholderStream;
+}
+
+/**
+ * Handle Screen Sharing
+ */
+async function toggleScreenSharing() {
+    try {
+        if (!isScreenSharing) {
+            updateStatus('Starting screen share...');
+            screenStream = await navigator.mediaDevices.getDisplayMedia({
+                video: true,
+                audio: true // Optional: system audio
+            });
+
+            // Handle when user clicks "Stop Sharing" on browser UI
+            screenStream.getVideoTracks()[0].onended = () => {
+                if (isScreenSharing) toggleScreenSharing();
+            };
+
+            const screenTrack = screenStream.getVideoTracks()[0];
+
+            // Replace video track in all peer connections
+            for (const peerId in peerConnections) {
+                const senders = peerConnections[peerId].getSenders();
+                const videoSender = senders.find(s => s.track.kind === 'video');
+                if (videoSender) {
+                    videoSender.replaceTrack(screenTrack);
+                }
+            }
+
+            // Update local preview
+            const localVideo = document.getElementById('video-local');
+            if (localVideo) {
+                localVideo.srcObject = screenStream;
+            }
+
+            isScreenSharing = true;
+            shareBtn.classList.add('toggle-off');
+            shareBtn.innerHTML = '<i class="fas fa-stop-circle"></i>';
+            videoBtn.disabled = true; // Disable camera toggle while sharing screen
+            updateStatus('Sharing screen', 'success');
+        } else {
+            updateStatus('Stopping screen share...');
+
+            // Stop screen tracks
+            screenStream.getTracks().forEach(track => track.stop());
+            screenStream = null;
+
+            const cameraTrack = localStream.getVideoTracks()[0];
+
+            // Replace back with camera track in all peer connections
+            for (const peerId in peerConnections) {
+                const senders = peerConnections[peerId].getSenders();
+                const videoSender = senders.find(s => s.track.kind === 'video');
+                if (videoSender) {
+                    videoSender.replaceTrack(cameraTrack);
+                }
+            }
+
+            // Restore local preview
+            const localVideo = document.getElementById('video-local');
+            if (localVideo) {
+                localVideo.srcObject = localStream;
+            }
+
+            isScreenSharing = false;
+            shareBtn.classList.remove('toggle-off');
+            shareBtn.innerHTML = '<i class="fas fa-desktop"></i>';
+            videoBtn.disabled = false;
+            updateStatus('Stopped screen share');
+        }
+    } catch (error) {
+        console.error('[ERROR] Screen share failed:', error);
+        updateStatus('Screen share cancelled', 'error');
+    }
+}
+
+/**
+ * Handle Picture-in-Picture for the first found remote video or local
+ */
+async function togglePip() {
+    try {
+        const localVideo = document.getElementById('video-local');
+        if (!localVideo) return;
+
+        if (document.pictureInPictureElement) {
+            await document.exitPictureInPicture();
+        } else {
+            if (localVideo.readyState >= 2) {
+                await localVideo.requestPictureInPicture();
+            } else {
+                updateStatus('Video not ready for PiP', 'error');
+            }
+        }
+    } catch (error) {
+        console.error('[ERROR] PiP failed:', error);
+    }
+}
+
+/**
+ * Wake Lock to keep camera/audio active in background (mobile/high-perf)
+ */
+async function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+        try {
+            wakeLock = await navigator.wakeLock.request('screen');
+            console.log('[WAKE LOCK] Screen Wake Lock is active');
+        } catch (err) {
+            console.error(`[WAKE LOCK] ${err.name}, ${err.message}`);
+        }
+    }
+}
+
+function releaseWakeLock() {
+    if (wakeLock !== null) {
+        wakeLock.release().then(() => {
+            wakeLock = null;
+            console.log('[WAKE LOCK] Released');
+        });
+    }
 }
 
 // ============================================
@@ -427,6 +552,8 @@ function initializeSocket() {
 
         muteBtn.disabled = false;
         videoBtn.disabled = false;
+        shareBtn.disabled = false;
+        pipBtn.disabled = false;
         leaveBtn.disabled = false;
     });
 
@@ -445,6 +572,8 @@ function initializeSocket() {
         updateStatus('Joined as host. Waiting for others...', 'success');
         muteBtn.disabled = false;
         videoBtn.disabled = false;
+        shareBtn.disabled = false;
+        pipBtn.disabled = false;
         leaveBtn.disabled = false;
     });
 
@@ -502,6 +631,9 @@ async function joinRoom() {
         updateStatus('Requesting to join room...');
         socket.emit('join-room', ROOM_ID);
 
+        // Request Wake Lock to keep connection active
+        requestWakeLock();
+
         // Success state is now handled by joined-as-host or join-approved events
 
     } catch (error) {
@@ -540,7 +672,12 @@ function leaveRoom() {
     joinBtn.disabled = false;
     muteBtn.disabled = true;
     videoBtn.disabled = true;
+    shareBtn.disabled = true;
+    pipBtn.disabled = true;
     leaveBtn.disabled = true;
+
+    // Release Wake Lock
+    releaseWakeLock();
 
     // Reset button text/icons
     muteBtn.innerHTML = '<i class="fas fa-microphone"></i>';
@@ -596,6 +733,8 @@ function toggleVideo() {
 joinBtn.addEventListener('click', joinRoom);
 muteBtn.addEventListener('click', toggleAudio);
 videoBtn.addEventListener('click', toggleVideo);
+shareBtn.addEventListener('click', toggleScreenSharing);
+pipBtn.addEventListener('click', togglePip);
 leaveBtn.addEventListener('click', leaveRoom);
 
 // Handle page unload - clean up connections
