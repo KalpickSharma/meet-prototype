@@ -45,6 +45,23 @@ let audioContext = null;        // AudioContext for mixing streams
 let mixedStreamDestination = null; // Destination for mixed audio
 // Key: peerId, Value: RTCPeerConnection
 
+// --- Screen Recording ---
+let mediaRecorder = null;
+let recordedChunks = [];
+let isRecording = false;
+let recordingStartTime = null;
+let recordingTimerInterval = null;
+
+// --- Virtual Background ---
+let selfieSegmentation = null;
+let bgCanvas = null;
+let bgCtx = null;
+let bgVideoElement = null;
+let bgAnimationId = null;
+let bgProcessedStream = null;
+let bgOriginalTrack = null;
+let bgConfig = { type: 'none', color: '#6c5ce7', imageSrc: null, imageEl: null };
+
 // ============================================
 // DOM Elements
 // ============================================
@@ -55,6 +72,8 @@ const joinBtn = document.getElementById('join-btn');
 const muteBtn = document.getElementById('mute-btn');
 const videoBtn = document.getElementById('video-btn');
 const shareBtn = document.getElementById('share-btn');
+const recordBtn = document.getElementById('record-btn');
+const bgBtn = document.getElementById('bg-btn');
 const pipBtn = document.getElementById('pip-btn');
 const leaveBtn = document.getElementById('leave-btn');
 
@@ -652,6 +671,8 @@ function initializeSocket() {
         muteBtn.disabled = false;
         videoBtn.disabled = false;
         shareBtn.disabled = false;
+        recordBtn.disabled = false;
+        bgBtn.disabled = false;
         pipBtn.disabled = false;
         leaveBtn.disabled = false;
     });
@@ -672,6 +693,8 @@ function initializeSocket() {
         muteBtn.disabled = false;
         videoBtn.disabled = false;
         shareBtn.disabled = false;
+        recordBtn.disabled = false;
+        bgBtn.disabled = false;
         pipBtn.disabled = false;
         leaveBtn.disabled = false;
     });
@@ -772,17 +795,27 @@ function leaveRoom() {
     muteBtn.disabled = true;
     videoBtn.disabled = true;
     shareBtn.disabled = true;
+    recordBtn.disabled = true;
+    bgBtn.disabled = true;
     pipBtn.disabled = true;
     leaveBtn.disabled = true;
 
     // Release Wake Lock
     releaseWakeLock();
 
+    // Stop recording if active
+    if (isRecording) stopRecording();
+
+    // Stop virtual background if active
+    stopVirtualBackground();
+
     // Reset button text/icons
     muteBtn.innerHTML = '<i class="fas fa-microphone"></i>';
     videoBtn.innerHTML = '<i class="fas fa-video"></i>';
     muteBtn.classList.remove('toggle-off');
     videoBtn.classList.remove('toggle-off');
+    recordBtn.classList.remove('recording');
+    bgBtn.classList.remove('bg-active');
 
     console.log('[ROOM] Left the room');
 }
@@ -826,6 +859,303 @@ function toggleVideo() {
 }
 
 // ============================================
+// Screen Recording
+// ============================================
+
+function startRecording() {
+    try {
+        recordedChunks = [];
+        // Capture the video grid as a canvas stream
+        const canvas = document.createElement('canvas');
+        canvas.width = 1280;
+        canvas.height = 720;
+        const ctx = canvas.getContext('2d');
+        const canvasStream = canvas.captureStream(30);
+
+        // Mix all audio from peer connections + local
+        const recAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const recDest = recAudioCtx.createMediaStreamDestination();
+
+        if (localStream && localStream.getAudioTracks().length > 0) {
+            recAudioCtx.createMediaStreamSource(localStream).connect(recDest);
+        }
+        // Add remote audio
+        document.querySelectorAll('#video-grid video').forEach(v => {
+            if (v.srcObject && !v.muted && v.srcObject.getAudioTracks().length > 0) {
+                try { recAudioCtx.createMediaStreamSource(v.srcObject).connect(recDest); } catch(e) {}
+            }
+        });
+
+        recDest.stream.getAudioTracks().forEach(t => canvasStream.addTrack(t));
+
+        // Draw all videos onto canvas
+        function drawFrame() {
+            ctx.fillStyle = '#0b0b1a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            const videos = document.querySelectorAll('#video-grid video');
+            const count = videos.length;
+            if (count === 0) { if (isRecording) requestAnimationFrame(drawFrame); return; }
+            const cols = count <= 1 ? 1 : count <= 4 ? 2 : 3;
+            const rows = Math.ceil(count / cols);
+            const w = canvas.width / cols;
+            const h = canvas.height / rows;
+            videos.forEach((v, i) => {
+                const x = (i % cols) * w;
+                const y = Math.floor(i / cols) * h;
+                try { ctx.drawImage(v, x + 2, y + 2, w - 4, h - 4); } catch(e) {}
+            });
+            if (isRecording) requestAnimationFrame(drawFrame);
+        }
+
+        mediaRecorder = new MediaRecorder(canvasStream, {
+            mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+                ? 'video/webm;codecs=vp9,opus' : 'video/webm'
+        });
+
+        mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
+        mediaRecorder.onstop = () => {
+            const blob = new Blob(recordedChunks, { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `meeting-recording-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.webm`;
+            a.click();
+            URL.revokeObjectURL(url);
+            recAudioCtx.close();
+        };
+
+        mediaRecorder.start(1000);
+        isRecording = true;
+        recordingStartTime = Date.now();
+        drawFrame();
+
+        // Timer
+        const indicator = document.getElementById('recording-indicator');
+        const timerEl = document.getElementById('rec-timer');
+        indicator.classList.add('active');
+        recordingTimerInterval = setInterval(() => {
+            const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+            const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+            const s = String(elapsed % 60).padStart(2, '0');
+            timerEl.textContent = `REC ${m}:${s}`;
+        }, 1000);
+
+        recordBtn.classList.add('recording');
+        recordBtn.innerHTML = '<i class="fas fa-stop"></i>';
+        updateStatus('Recording started', 'success');
+        console.log('[REC] Recording started');
+    } catch (err) {
+        console.error('[REC] Failed to start:', err);
+        updateStatus('Recording failed to start', 'error');
+    }
+}
+
+function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+    }
+    isRecording = false;
+    clearInterval(recordingTimerInterval);
+    document.getElementById('recording-indicator').classList.remove('active');
+    recordBtn.classList.remove('recording');
+    recordBtn.innerHTML = '<i class="fas fa-circle"></i>';
+    updateStatus('Recording saved');
+    console.log('[REC] Recording stopped');
+}
+
+function toggleRecording() {
+    if (isRecording) stopRecording();
+    else startRecording();
+}
+
+// ============================================
+// Virtual Background
+// ============================================
+
+async function initSegmentation() {
+    if (selfieSegmentation) return;
+    try {
+        selfieSegmentation = new SelfieSegmentation({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${file}`
+        });
+        selfieSegmentation.setOptions({ modelSelection: 1 });
+        selfieSegmentation.onResults(onSegmentationResults);
+        console.log('[BG] Segmentation model initialized');
+    } catch (err) {
+        console.error('[BG] Failed to init segmentation:', err);
+        updateStatus('Background effect unavailable', 'error');
+    }
+}
+
+function onSegmentationResults(results) {
+    if (!bgCtx || !bgCanvas) return;
+    bgCtx.save();
+    bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+
+    // Draw the segmentation mask
+    bgCtx.drawImage(results.segmentationMask, 0, 0, bgCanvas.width, bgCanvas.height);
+
+    // Where the person IS, keep the camera image
+    bgCtx.globalCompositeOperation = 'source-in';
+    bgCtx.drawImage(results.image, 0, 0, bgCanvas.width, bgCanvas.height);
+
+    // Now draw background behind the person
+    bgCtx.globalCompositeOperation = 'destination-over';
+    if (bgConfig.type === 'blur') {
+        bgCtx.filter = 'blur(15px)';
+        bgCtx.drawImage(results.image, 0, 0, bgCanvas.width, bgCanvas.height);
+        bgCtx.filter = 'none';
+    } else if (bgConfig.type === 'color') {
+        bgCtx.fillStyle = bgConfig.color;
+        bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+    } else if (bgConfig.type === 'image' && bgConfig.imageEl) {
+        bgCtx.drawImage(bgConfig.imageEl, 0, 0, bgCanvas.width, bgCanvas.height);
+    }
+    bgCtx.restore();
+}
+
+async function applyVirtualBackground() {
+    if (!localStream) return;
+    await initSegmentation();
+    if (!selfieSegmentation) return;
+
+    // Create offscreen canvas
+    bgCanvas = document.createElement('canvas');
+    bgCanvas.width = 640;
+    bgCanvas.height = 480;
+    bgCtx = bgCanvas.getContext('2d');
+
+    // Create a hidden video element to feed frames
+    bgVideoElement = document.createElement('video');
+    bgVideoElement.srcObject = localStream;
+    bgVideoElement.muted = true;
+    bgVideoElement.playsInline = true;
+    bgVideoElement.play();
+
+    // Store original track
+    bgOriginalTrack = localStream.getVideoTracks()[0];
+
+    // Preload image if needed
+    if (bgConfig.type === 'image' && bgConfig.imageSrc) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.src = bgConfig.imageSrc;
+        await new Promise((res) => { img.onload = res; img.onerror = res; });
+        bgConfig.imageEl = img;
+    }
+
+    // Process frames
+    async function processFrame() {
+        if (!bgVideoElement || bgVideoElement.paused || bgVideoElement.ended) return;
+        await selfieSegmentation.send({ image: bgVideoElement });
+        bgAnimationId = requestAnimationFrame(processFrame);
+    }
+
+    bgVideoElement.addEventListener('loadeddata', () => { processFrame(); });
+    if (bgVideoElement.readyState >= 2) processFrame();
+
+    // Create stream from canvas and replace tracks
+    bgProcessedStream = bgCanvas.captureStream(30);
+    const processedTrack = bgProcessedStream.getVideoTracks()[0];
+
+    // Replace in local preview
+    const localVideo = document.getElementById('video-local');
+    if (localVideo) {
+        const newStream = new MediaStream([processedTrack, ...localStream.getAudioTracks()]);
+        localVideo.srcObject = newStream;
+    }
+
+    // Replace in all peer connections
+    for (const peerId in peerConnections) {
+        const senders = peerConnections[peerId].getSenders();
+        const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+        if (videoSender) videoSender.replaceTrack(processedTrack);
+    }
+
+    bgBtn.classList.add('bg-active');
+    updateStatus('Virtual background applied', 'success');
+    console.log('[BG] Virtual background applied:', bgConfig.type);
+}
+
+function stopVirtualBackground() {
+    if (bgAnimationId) cancelAnimationFrame(bgAnimationId);
+    bgAnimationId = null;
+    if (bgVideoElement) { bgVideoElement.pause(); bgVideoElement.srcObject = null; bgVideoElement = null; }
+    if (bgProcessedStream) { bgProcessedStream.getTracks().forEach(t => t.stop()); bgProcessedStream = null; }
+
+    // Restore original track
+    if (bgOriginalTrack && localStream) {
+        const localVideo = document.getElementById('video-local');
+        if (localVideo) localVideo.srcObject = localStream;
+        for (const peerId in peerConnections) {
+            const senders = peerConnections[peerId].getSenders();
+            const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+            if (videoSender) videoSender.replaceTrack(bgOriginalTrack);
+        }
+    }
+    bgOriginalTrack = null;
+    bgCanvas = null;
+    bgCtx = null;
+    bgBtn.classList.remove('bg-active');
+    bgConfig.type = 'none';
+    console.log('[BG] Virtual background removed');
+}
+
+// ============================================
+// Background Modal Logic
+// ============================================
+
+function openBgModal() {
+    document.getElementById('bg-modal-overlay').classList.add('active');
+}
+
+function closeBgModal() {
+    document.getElementById('bg-modal-overlay').classList.remove('active');
+}
+
+function initBgModal() {
+    const overlay = document.getElementById('bg-modal-overlay');
+    const options = document.querySelectorAll('.bg-option');
+    const colorRow = document.getElementById('bg-color-picker-row');
+    const colorPicker = document.getElementById('bg-color-picker');
+    let pendingBg = { type: 'none', color: '#6c5ce7', imageSrc: null };
+
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeBgModal(); });
+
+    options.forEach(opt => {
+        opt.addEventListener('click', () => {
+            options.forEach(o => o.classList.remove('selected'));
+            opt.classList.add('selected');
+            pendingBg.type = opt.dataset.bg;
+            if (opt.dataset.bg === 'image') pendingBg.imageSrc = opt.dataset.src;
+            colorRow.style.display = opt.dataset.bg === 'color' ? 'block' : 'none';
+        });
+    });
+
+    colorPicker.addEventListener('input', (e) => {
+        pendingBg.color = e.target.value;
+        document.querySelector('.bg-option-color').style.background = e.target.value;
+    });
+
+    document.getElementById('bg-cancel-btn').addEventListener('click', closeBgModal);
+
+    document.getElementById('bg-apply-btn').addEventListener('click', () => {
+        closeBgModal();
+        if (pendingBg.type === 'none') {
+            stopVirtualBackground();
+            updateStatus('Background removed');
+        } else {
+            bgConfig.type = pendingBg.type;
+            bgConfig.color = pendingBg.color;
+            bgConfig.imageSrc = pendingBg.imageSrc;
+            // Stop existing bg first, then apply new
+            if (bgAnimationId) stopVirtualBackground();
+            applyVirtualBackground();
+        }
+    });
+}
+
+// ============================================
 // Event Listeners
 // ============================================
 
@@ -833,6 +1163,8 @@ joinBtn.addEventListener('click', joinRoom);
 muteBtn.addEventListener('click', toggleAudio);
 videoBtn.addEventListener('click', toggleVideo);
 shareBtn.addEventListener('click', toggleScreenSharing);
+recordBtn.addEventListener('click', toggleRecording);
+bgBtn.addEventListener('click', openBgModal);
 pipBtn.addEventListener('click', togglePip);
 leaveBtn.addEventListener('click', leaveRoom);
 
@@ -840,6 +1172,9 @@ leaveBtn.addEventListener('click', leaveRoom);
 window.addEventListener('beforeunload', () => {
     leaveRoom();
 });
+
+// Initialize background modal
+initBgModal();
 
 // Log when script loads
 console.log('[INIT] WebRTC client script loaded');

@@ -263,6 +263,192 @@
             background: var(--danger) !important;
         }
 
+        /* Recording button active state */
+        #record-btn.recording {
+            background: var(--danger) !important;
+            animation: pulse-record 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse-record {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(255, 71, 87, 0.6); }
+            50% { box-shadow: 0 0 0 12px rgba(255, 71, 87, 0); }
+        }
+
+        /* Recording indicator */
+        #recording-indicator {
+            display: none;
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 71, 87, 0.9);
+            backdrop-filter: blur(10px);
+            padding: 8px 18px;
+            border-radius: 50px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #fff;
+            z-index: 200;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 4px 20px rgba(255, 71, 87, 0.3);
+        }
+
+        #recording-indicator.active {
+            display: flex;
+        }
+
+        #recording-indicator .rec-dot {
+            width: 10px;
+            height: 10px;
+            background: #fff;
+            border-radius: 50%;
+            animation: blink-dot 1s ease-in-out infinite;
+        }
+
+        @keyframes blink-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        /* Background changer button active */
+        #bg-btn.bg-active {
+            background: linear-gradient(135deg, #6c5ce7, #00d4ff) !important;
+        }
+
+        /* Background Picker Modal */
+        #bg-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(5px);
+            z-index: 300;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #bg-modal-overlay.active {
+            display: flex;
+        }
+
+        #bg-modal {
+            background: rgba(15, 15, 35, 0.95);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 30px;
+            width: 90%;
+            max-width: 520px;
+            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.6);
+        }
+
+        #bg-modal h2 {
+            text-align: center;
+            margin-bottom: 6px;
+            font-size: 20px;
+            background: linear-gradient(to right, #6c5ce7, #00d4ff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        #bg-modal .modal-subtitle {
+            text-align: center;
+            color: #888;
+            font-size: 13px;
+            margin-bottom: 22px;
+        }
+
+        .bg-options {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .bg-option {
+            aspect-ratio: 16/10;
+            border-radius: 14px;
+            border: 2px solid transparent;
+            cursor: pointer;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .bg-option:hover {
+            transform: translateY(-3px);
+            border-color: var(--primary);
+        }
+
+        .bg-option.selected {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.3);
+        }
+
+        .bg-option img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .bg-option-none {
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+        }
+
+        .bg-option-blur {
+            background: linear-gradient(135deg, #2d3436, #636e72);
+        }
+
+        .bg-option-color {
+            cursor: pointer;
+        }
+
+        .bg-color-input {
+            width: 100%;
+            margin-top: 12px;
+        }
+
+        .bg-color-input input[type="color"] {
+            width: 100%;
+            height: 36px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            background: transparent;
+        }
+
+        #bg-modal .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        #bg-modal .modal-actions button {
+            width: auto;
+            padding: 10px 24px;
+            border-radius: 14px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .btn-cancel {
+            background: var(--glass) !important;
+            color: #aaa !important;
+        }
+
+        .btn-apply {
+            background: linear-gradient(135deg, #6c5ce7, #00d4ff) !important;
+            color: #fff !important;
+        }
+
         /* Tooltip-like behavior or labels for mobile */
         @media (max-width: 600px) {
             #controls {
@@ -273,6 +459,11 @@
             button {
                 width: 45px;
                 height: 45px;
+            }
+
+            #bg-modal {
+                margin: 15px;
+                padding: 20px;
             }
         }
     </style>
@@ -300,6 +491,12 @@
             <button id="share-btn" disabled title="Share Screen">
                 <i class="fas fa-desktop"></i>
             </button>
+            <button id="record-btn" disabled title="Record Meeting">
+                <i class="fas fa-circle"></i>
+            </button>
+            <button id="bg-btn" disabled title="Virtual Background">
+                <i class="fas fa-image"></i>
+            </button>
             <button id="pip-btn" disabled title="Picture-in-Picture">
                 <i class="fas fa-external-link-alt"></i>
             </button>
@@ -313,6 +510,56 @@
     <div id="video-grid">
         <!-- Videos will be dynamically added here -->
     </div>
+
+    <!-- Recording Indicator -->
+    <div id="recording-indicator">
+        <div class="rec-dot"></div>
+        <span id="rec-timer">REC 00:00</span>
+    </div>
+
+    <!-- Background Picker Modal -->
+    <div id="bg-modal-overlay">
+        <div id="bg-modal">
+            <h2>Virtual Background</h2>
+            <p class="modal-subtitle">Choose a background effect for your video</p>
+            <div class="bg-options">
+                <div class="bg-option bg-option-none selected" data-bg="none" title="No effect">
+                    <i class="fas fa-ban" style="font-size:24px;opacity:0.5"></i>
+                </div>
+                <div class="bg-option bg-option-blur" data-bg="blur" title="Blur background">
+                    <i class="fas fa-water" style="font-size:24px;opacity:0.7"></i>
+                </div>
+                <div class="bg-option bg-option-color" data-bg="color" title="Solid color" style="background:#6c5ce7">
+                    <i class="fas fa-palette" style="font-size:24px;opacity:0.7"></i>
+                </div>
+                <div class="bg-option" data-bg="image" data-src="https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=640&q=80" title="Mountains">
+                    <img src="https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=200&q=60" alt="Mountains">
+                </div>
+                <div class="bg-option" data-bg="image" data-src="https://images.unsplash.com/photo-1462275646964-a0e3c11f18a6?w=640&q=80" title="Beach">
+                    <img src="https://images.unsplash.com/photo-1462275646964-a0e3c11f18a6?w=200&q=60" alt="Beach">
+                </div>
+                <div class="bg-option" data-bg="image" data-src="https://images.unsplash.com/photo-1519681393784-d120267933ba?w=640&q=80" title="Night Sky">
+                    <img src="https://images.unsplash.com/photo-1519681393784-d120267933ba?w=200&q=60" alt="Night Sky">
+                </div>
+                <div class="bg-option" data-bg="image" data-src="https://images.unsplash.com/photo-1497436072909-60f360e1d4b1?w=640&q=80" title="Forest">
+                    <img src="https://images.unsplash.com/photo-1497436072909-60f360e1d4b1?w=200&q=60" alt="Forest">
+                </div>
+                <div class="bg-option" data-bg="image" data-src="https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=640&q=80" title="Tropical Beach">
+                    <img src="https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=200&q=60" alt="Tropical Beach">
+                </div>
+            </div>
+            <div class="bg-color-input" id="bg-color-picker-row" style="display:none">
+                <input type="color" id="bg-color-picker" value="#6c5ce7">
+            </div>
+            <div class="modal-actions">
+                <button class="btn-cancel" id="bg-cancel-btn">Cancel</button>
+                <button class="btn-apply" id="bg-apply-btn">Apply</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MediaPipe Vision for selfie segmentation -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js" crossorigin="anonymous"></script>
 
     <!-- Socket.IO client library (served by socket.io server) -->
     <script src="/socket.io/socket.io.js"></script>
