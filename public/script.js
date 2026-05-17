@@ -908,17 +908,17 @@ function startRecording() {
         }
 
         mediaRecorder = new MediaRecorder(canvasStream, {
-            mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
-                ? 'video/webm;codecs=vp9,opus' : 'video/webm'
+            mimeType: MediaRecorder.isTypeSupported('video/mp4;codecs=avc1,mp4a')
+                ? 'video/mp4;codecs=avc1,mp4a' : 'video/mp4'
         });
 
         mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
         mediaRecorder.onstop = () => {
-            const blob = new Blob(recordedChunks, { type: 'video/webm' });
+            const blob = new Blob(recordedChunks, { type: 'video/mp4' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `meeting-recording-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.webm`;
+            a.download = `meeting-recording-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.mp4`;
             a.click();
             URL.revokeObjectURL(url);
             recAudioCtx.close();
